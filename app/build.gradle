@@ -1,0 +1,81 @@
+plugins {
+    id 'com.android.library'
+}
+
+android {
+    namespace 'com.evobot.sequence'
+    compileSdk 34
+
+    defaultConfig {
+        minSdk 21
+        targetSdk 34
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles "consumer-rules.pro"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    // 使用纯Android SDK，无需额外依赖
+    compileOnly 'androidx.annotation:annotation:1.7.1'
+
+    // 测试依赖
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}
+
+// 生成JAR任务（仅包含Java代码）
+task jar(type: Jar) {
+    dependsOn 'assembleRelease'
+    from android.sourceSets.main.java.srcDirs
+    archiveFileName = 'evobot-sequence-player.jar'
+    destinationDirectory = file("$buildDir/outputs/jar")
+
+    // 排除R文件和BuildConfig
+    exclude '**/R.class'
+    exclude '**/R$*.class'
+    exclude '**/BuildConfig.*'
+
+    doLast {
+        println "JAR已生成: ${archiveFile.get().asFile.absolutePath}"
+    }
+}
+
+// 生成包含资源的完整JAR
+task fatJar(type: Jar) {
+    dependsOn 'assembleRelease'
+    from android.sourceSets.main.java.srcDirs
+    from android.sourceSets.main.assets.srcDirs
+
+    archiveFileName = 'evobot-sequence-player-full.jar'
+    destinationDirectory = file("$buildDir/outputs/jar")
+
+    exclude '**/R.class'
+    exclude '**/R$*.class'
+    exclude '**/BuildConfig.*'
+
+    doLast {
+        println "完整JAR已生成: ${archiveFile.get().asFile.absolutePath}"
+    }
+}
+
+// 构建完成后自动生成JAR
+tasks.whenTaskAdded { task ->
+    if (task.name == 'assembleRelease') {
+        task.finalizedBy 'jar'
+        task.finalizedBy 'fatJar'
+    }
+}
