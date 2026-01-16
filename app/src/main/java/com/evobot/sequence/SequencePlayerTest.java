@@ -18,6 +18,14 @@ public class SequencePlayerTest {
     private static final String TAG = "SequencePlayerTest";
     private static final boolean VERBOSE = true;  // 是否打印详细日志
 
+    /**
+     * 测试用函数式接口，允许抛出异常
+     */
+    @FunctionalInterface
+    private interface TestRunnable {
+        void run() throws Exception;
+    }
+
     private EvoBotSequencePlayer player;
     private int frameCount = 0;
     private long startTime = 0;
@@ -70,7 +78,7 @@ public class SequencePlayerTest {
     /**
      * 运行单个测试
      */
-    private void runTest(String testName, Runnable test) {
+    private void runTest(String testName, TestRunnable test) {
         Log.d(TAG, "\n--- " + testName + " ---");
         testLog.append("\n### ").append(testName).append("\n");
 

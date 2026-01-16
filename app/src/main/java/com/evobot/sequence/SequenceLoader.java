@@ -91,7 +91,7 @@ public class SequenceLoader {
         }
 
         // 帧数 (4 bytes, uint32)
-        int frameCount = buffer.getInt() & 0xFFFFFFFFL;
+        int frameCount = (int)(buffer.getInt() & 0xFFFFFFFFL);
         if (frameCount <= 0 || frameCount > 100000) {
             throw new IOException("无效的帧数: " + frameCount);
         }
@@ -109,7 +109,7 @@ public class SequenceLoader {
         }
 
         // 编译时间 (4 bytes, uint32)
-        int compiledAt = buffer.getInt() & 0xFFFFFFFFL;
+        int compiledAt = (int)(buffer.getInt() & 0xFFFFFFFFL);
 
         // 保留字段 (12 bytes) - 跳过
         buffer.position(buffer.position() + 12);
@@ -217,10 +217,10 @@ public class SequenceLoader {
             buffer.position(4);
 
             // 读取关键字段
-            int frameCount = buffer.getInt() & 0xFFFFFFFFL;
+            int frameCount = (int)(buffer.getInt() & 0xFFFFFFFFL);
             float sampleRate = buffer.getFloat();
             float totalDuration = buffer.getFloat();
-            int compiledAt = buffer.getInt() & 0xFFFFFFFFL;
+            int compiledAt = (int)(buffer.getInt() & 0xFFFFFFFFL);
 
             // 跳过保留字段
             buffer.position(buffer.position() + 12);
