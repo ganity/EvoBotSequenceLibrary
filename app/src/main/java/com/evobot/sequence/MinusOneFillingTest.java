@@ -252,6 +252,15 @@ public class MinusOneFillingTest {
             }
         }
 
-        return new SequenceData(leftArmSequence, rightArmSequence, totalFrames);
+        SequenceData sequenceData = new SequenceData();
+        sequenceData.name = "TestSequence";
+        sequenceData.sampleRate = 40.0f;
+        sequenceData.totalFrames = totalFrames;
+        sequenceData.totalDuration = totalFrames / 40.0f;
+        sequenceData.compiledAt = (int) (System.currentTimeMillis() / 1000);
+        sequenceData.leftArmSequence = leftArmSequence;
+        sequenceData.rightArmSequence = rightArmSequence;
+        
+        return sequenceData;
     }
 }
