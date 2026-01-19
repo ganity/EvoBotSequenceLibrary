@@ -35,6 +35,10 @@ public class EvoBotSequencePlayer {
     private long intervalMs;           // 实际间隔（毫秒）
     private long lastFrameTime = 0;    // 上一帧的时间戳
 
+    // -1值填充缓存：存储每个关节的最后一个非-1值
+    private int[] lastValidLeftArm = new int[10];   // 左臂10个关节
+    private int[] lastValidRightArm = new int[10];  // 右臂10个关节
+
     // 播放任务
     private Runnable playbackRunnable;
 
@@ -121,6 +125,9 @@ public class EvoBotSequencePlayer {
             // 重置播放状态
             currentFrame = 0;
             lastFrameTime = 0;
+            
+            // 重置-1值填充缓存
+            resetLastValidValues();
 
             setState(PlayerState.READY);
 
@@ -175,10 +182,14 @@ public class EvoBotSequencePlayer {
         int[] leftArm = currentSequence.leftArmSequence[currentFrame];
         int[] rightArm = currentSequence.rightArmSequence[currentFrame];
 
+        // 处理-1值填充：用上一帧的非-1值替换当前帧的-1值
+        int[] processedLeftArm = fillMinusOneValues(leftArm, lastValidLeftArm);
+        int[] processedRightArm = fillMinusOneValues(rightArm, lastValidRightArm);
+
         // 回调监听器
         if (listener != null) {
             try {
-                listener.onFrameData(leftArm, rightArm, currentFrame);
+                listener.onFrameData(processedLeftArm, processedRightArm, currentFrame);
             } catch (Exception e) {
                 Log.e(TAG, "监听器回调异常", e);
                 handleError("监听器回调异常: " + e.getMessage());
@@ -253,6 +264,9 @@ public class EvoBotSequencePlayer {
         handler.removeCallbacks(playbackRunnable);
         currentFrame = 0;
         lastFrameTime = 0;
+        
+        // 重置-1值填充缓存
+        resetLastValidValues();
 
         Log.d(TAG, "播放已停止");
     }
@@ -273,6 +287,9 @@ public class EvoBotSequencePlayer {
         // 重置播放参数
         currentFrame = 0;
         lastFrameTime = 0;
+        
+        // 重置-1值填充缓存
+        resetLastValidValues();
         
         // 立即通知监听器执行急停
         if (listener != null) {
@@ -408,6 +425,55 @@ public class EvoBotSequencePlayer {
         currentSequence = null;
         listener = null;
         setState(PlayerState.IDLE);
+    }
+
+    /**
+     * 重置-1值填充缓存
+     * 将所有关节的最后有效值重置为-1
+     */
+    private void resetLastValidValues() {
+        for (int i = 0; i < 10; i++) {
+            lastValidLeftArm[i] = -1;
+            lastValidRightArm[i] = -1;
+        }
+        Log.d(TAG, "已重置-1值填充缓存");
+    }
+
+    /**
+     * 填充-1值：将数组中的-1值替换为对应关节的最后一个非-1值
+     * 
+     * @param currentValues 当前帧的关节值数组
+     * @param lastValidValues 存储最后有效值的缓存数组
+     * @return 处理后的关节值数组
+     */
+    private int[] fillMinusOneValues(int[] currentValues, int[] lastValidValues) {
+        if (currentValues == null || currentValues.length != 10) {
+            Log.w(TAG, "无效的关节数据数组");
+            return currentValues;
+        }
+
+        // 创建新数组避免修改原始数据
+        int[] processedValues = new int[currentValues.length];
+        
+        for (int i = 0; i < currentValues.length; i++) {
+            if (currentValues[i] == -1) {
+                // 当前值为-1，使用缓存的最后有效值
+                if (lastValidValues[i] != -1) {
+                    processedValues[i] = lastValidValues[i];
+                    Log.v(TAG, String.format("关节%d: -1 -> %d (使用缓存值)", i, lastValidValues[i]));
+                } else {
+                    // 如果缓存中也没有有效值，保持-1
+                    processedValues[i] = -1;
+                    Log.v(TAG, String.format("关节%d: -1 -> -1 (无缓存值)", i));
+                }
+            } else {
+                // 当前值不为-1，更新缓存并使用当前值
+                lastValidValues[i] = currentValues[i];
+                processedValues[i] = currentValues[i];
+            }
+        }
+        
+        return processedValues;
     }
 
     // 初始化播放任务
