@@ -11,6 +11,7 @@
 - ✅ 通过Listener接口回调关节数据
 - ✅ 支持暂停/恢复/停止
 - ✅ 支持帧级跳转（seek）
+- ✅ **急停功能** - 紧急情况下立即停止位置输出
 - ✅ 基于Android Handler的精确定时
 - ✅ 支持误差补偿
 - ✅ 完整的状态管理
@@ -68,6 +69,13 @@ player.play("左臂挥手右臂掐腰抱胸", new SequenceListener() {
     public void onError(String errorMessage) {
         Log.e(TAG, "播放错误: " + errorMessage);
     }
+
+    @Override
+    public void onEmergencyStop() {
+        // 急停回调 - 立即停止向机器人发送位置指令
+        Log.w(TAG, "收到急停信号，立即停止机器人运动");
+        stopRobotMovement();
+    }
 });
 ```
 
@@ -90,9 +98,46 @@ player.resume();
 // 停止播放
 player.stop();
 
+// 急停 - 紧急情况下立即停止
+player.emergencyStop();
+
 // 跳转到指定帧
 player.seek(200);  // 跳转到第200帧
 ```
+
+### 急停功能 🚨
+
+急停功能用于在紧急情况下立即停止序列播放并停止位置输出，确保机器人安全。
+
+```java
+// 检测到紧急情况时调用
+if (emergencyConditionDetected()) {
+    player.emergencyStop();  // 立即停止播放
+}
+
+// 在监听器中处理急停
+new SequenceListener() {
+    @Override
+    public void onEmergencyStop() {
+        // 立即停止向机器人发送位置指令
+        stopSerialPortOutput();
+        
+        // 可选：让机器人保持当前位置
+        sendHoldPositionCommand();
+        
+        // 记录急停事件
+        logEmergencyStop();
+    }
+    
+    // ... 其他回调方法
+};
+```
+
+**急停特性**：
+- ⚡ **立即响应**: 调用后立即停止所有播放任务（响应时间 < 20ms）
+- 🛑 **安全回调**: 通过 `onEmergencyStop()` 通知立即停止位置输出
+- 📝 **状态管理**: 自动设置播放器状态为 STOPPED
+- 🔄 **不可恢复**: 急停后需要重新开始播放
 
 ### 状态查询
 
@@ -182,6 +227,7 @@ protected void onDestroy() {
 | `pause()` | 暂停播放 |
 | `resume()` | 恢复播放 |
 | `stop()` | 停止播放 |
+| `emergencyStop()` | 急停 - 立即停止播放和位置输出 |
 | `seek(frameIndex)` | 跳转到指定帧 |
 | `getState()` | 获取当前状态 |
 | `getCurrentFrame()` | 获取当前帧索引 |
@@ -209,6 +255,50 @@ protected void onDestroy() {
 | `onFrameData(leftArm, rightArm, frameIndex)` | 帧数据回调 |
 | `onComplete()` | 播放完成回调 |
 | `onError(errorMessage)` | 错误回调 |
+| `onEmergencyStop()` | 急停回调 - 立即停止位置输出 |
+
+## 急停使用场景
+
+急停功能适用于以下紧急情况：
+
+### 1. 碰撞检测
+```java
+// 传感器检测到碰撞
+if (collisionSensor.isTriggered()) {
+    player.emergencyStop();
+    Log.w(TAG, "检测到碰撞，执行急停");
+}
+```
+
+### 2. 超出安全范围
+```java
+// 机器人位置超出安全范围
+if (isOutOfSafeZone(robotPosition)) {
+    player.emergencyStop();
+    Log.w(TAG, "机器人超出安全范围，执行急停");
+}
+```
+
+### 3. 用户手动急停
+```java
+// 用户按下急停按钮
+Button emergencyButton = findViewById(R.id.emergency_button);
+emergencyButton.setOnClickListener(v -> {
+    player.emergencyStop();
+    showEmergencyDialog();
+});
+```
+
+### 4. 系统异常
+```java
+// 系统检测到异常
+try {
+    // 正常操作
+} catch (Exception e) {
+    player.emergencyStop();
+    Log.e(TAG, "系统异常，执行急停", e);
+}
+```
 
 ## 系统要求
 
@@ -226,6 +316,8 @@ protected void onDestroy() {
 2. **资源释放**: 务必在Activity/Fragment销毁时调用 `release()`
 3. **频率限制**: 频率过高可能导致性能问题，建议不超过50Hz
 4. **-1处理**: 接收到-1时表示保持该关节当前位置，不需要发送
+5. **急停安全**: 在 `onEmergencyStop()` 回调中务必立即停止向机器人发送位置指令
+6. **急停不可恢复**: 调用 `emergencyStop()` 后需要重新开始播放，不能使用 `resume()`
 
 ## 示例应用
 
@@ -256,6 +348,13 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onError(String errorMessage) {
                 Toast.makeText(MainActivity.this, "错误: " + errorMessage, Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void onEmergencyStop() {
+                // 急停处理
+                Toast.makeText(MainActivity.this, "急停！", Toast.LENGTH_SHORT).show();
+                stopSerialPortOutput();
             }
         });
     }

@@ -170,6 +170,11 @@ public class SequencePlayerTest {
             public void onError(String errorMessage) {
                 throw new RuntimeException("播放出错: " + errorMessage);
             }
+
+            @Override
+            public void onEmergencyStop() {
+                Log.d(TAG, "收到急停回调");
+            }
         });
 
         // 等待播放完成 (最多15秒)
@@ -233,6 +238,11 @@ public class SequencePlayerTest {
             public void onError(String errorMessage) {
                 throw new RuntimeException("频率测试出错: " + errorMessage);
             }
+
+            @Override
+            public void onEmergencyStop() {
+                Log.d(TAG, "频率测试收到急停回调");
+            }
         });
 
         // 等待测试完成 (最多5秒)
@@ -286,6 +296,11 @@ public class SequencePlayerTest {
             @Override
             public void onError(String errorMessage) {
                 throw new RuntimeException("播放控制测试出错: " + errorMessage);
+            }
+
+            @Override
+            public void onEmergencyStop() {
+                Log.d(TAG, "播放控制测试收到急停回调");
             }
         });
 
@@ -342,6 +357,11 @@ public class SequencePlayerTest {
             public void onError(String errorMessage) {
                 throw new RuntimeException("Seek测试出错: " + errorMessage);
             }
+
+            @Override
+            public void onEmergencyStop() {
+                Log.d(TAG, "Seek测试收到急停回调");
+            }
         });
 
         // 等待测试完成 (最多5秒)
@@ -382,6 +402,11 @@ public class SequencePlayerTest {
                 errorReceived[0] = true;
                 Log.d(TAG, "收到错误回调: " + errorMessage);
             }
+
+            @Override
+            public void onEmergencyStop() {
+                Log.d(TAG, "错误处理测试收到急停回调");
+            }
         });
 
         // 测试无效参数
@@ -395,6 +420,9 @@ public class SequencePlayerTest {
 
                 @Override
                 public void onError(String errorMessage) {}
+
+                @Override
+                public void onEmergencyStop() {}
             });
             throw new RuntimeException("应该抛出空参数异常");
         } catch (IllegalArgumentException e) {
@@ -412,6 +440,9 @@ public class SequencePlayerTest {
 
                 @Override
                 public void onError(String errorMessage) {}
+
+                @Override
+                public void onEmergencyStop() {}
             });
             throw new RuntimeException("应该抛出无效频率异常");
         } catch (IllegalArgumentException e) {

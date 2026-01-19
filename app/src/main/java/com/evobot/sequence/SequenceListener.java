@@ -29,4 +29,10 @@ public interface SequenceListener {
      * @param errorMessage 错误信息描述
      */
     void onError(String errorMessage);
+
+    /**
+     * 急停回调
+     * 当调用急停方法后立即回调，通知监听器停止位置输出
+     */
+    void onEmergencyStop();
 }

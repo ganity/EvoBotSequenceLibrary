@@ -258,6 +258,35 @@ public class EvoBotSequencePlayer {
     }
 
     /**
+     * 急停方法
+     * 立即停止序列播放并通知监听器停止位置输出
+     */
+    public void emergencyStop() {
+        Log.w(TAG, "执行急停操作");
+        
+        // 立即停止所有播放任务
+        handler.removeCallbacks(playbackRunnable);
+        
+        // 设置状态为停止
+        setState(PlayerState.STOPPED);
+        
+        // 重置播放参数
+        currentFrame = 0;
+        lastFrameTime = 0;
+        
+        // 立即通知监听器执行急停
+        if (listener != null) {
+            try {
+                listener.onEmergencyStop();
+            } catch (Exception e) {
+                Log.e(TAG, "急停回调异常", e);
+            }
+        }
+        
+        Log.w(TAG, "急停操作完成");
+    }
+
+    /**
      * 跳转到指定帧
      *
      * @param frameIndex 目标帧索引
