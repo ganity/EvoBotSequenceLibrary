@@ -9,6 +9,7 @@ import android.util.Log;
 /**
  * EvoBot序列播放器
  * 按照指定频率（如40Hz）播放序列数据并通过Listener回调
+ * 支持本地assets和HTTP动作库两种加载方式
  */
 public class EvoBotSequencePlayer {
 
@@ -23,6 +24,9 @@ public class EvoBotSequencePlayer {
     private final Context context;
     private final SequenceLoader loader;
     private final Handler handler;
+    
+    // 动作库组件（可选）
+    private ActionLibraryManager actionLibraryManager;
 
     // 播放状态
     private PlayerState state = PlayerState.IDLE;
@@ -43,7 +47,7 @@ public class EvoBotSequencePlayer {
     private Runnable playbackRunnable;
 
     /**
-     * 构造函数
+     * 构造函数（仅支持本地assets）
      *
      * @param context Android上下文
      */
@@ -55,7 +59,22 @@ public class EvoBotSequencePlayer {
         this.loader = new SequenceLoader(this.context);
         this.handler = new Handler(Looper.getMainLooper());
 
-        Log.d(TAG, "EvoBotSequencePlayer初始化完成");
+        Log.d(TAG, "EvoBotSequencePlayer初始化完成（仅本地模式）");
+    }
+    
+    /**
+     * 构造函数（支持HTTP动作库）
+     *
+     * @param context Android上下文
+     * @param actionLibraryConfig 动作库配置
+     */
+    public EvoBotSequencePlayer(Context context, ActionLibraryConfig actionLibraryConfig) {
+        this(context);
+        
+        if (actionLibraryConfig != null) {
+            this.actionLibraryManager = new ActionLibraryManager(context, actionLibraryConfig);
+            Log.d(TAG, "EvoBotSequencePlayer初始化完成（支持HTTP动作库）");
+        }
     }
 
     /**
@@ -105,6 +124,76 @@ public class EvoBotSequencePlayer {
             }
         }, "SequenceLoader").start();
     }
+    
+    /**
+     * 检查动作库更新
+     *
+     * @param currentVersion 当前版本
+     * @param callback 更新检查回调
+     */
+    public void checkUpdates(String currentVersion, ActionLibraryManager.UpdateCheckCallback callback) {
+        if (actionLibraryManager == null) {
+            if (callback != null) {
+                callback.onError("未配置动作库管理器");
+            }
+            return;
+        }
+        
+        actionLibraryManager.checkUpdatesAsync(currentVersion, callback);
+    }
+    
+    /**
+     * 获取动作列表
+     *
+     * @param category 分类过滤（可选）
+     * @param callback 回调
+     */
+    public void getActionList(String category, ActionLibraryManager.ActionListCallback callback) {
+        if (actionLibraryManager == null) {
+            if (callback != null) {
+                callback.onError("未配置动作库管理器");
+            }
+            return;
+        }
+        
+        actionLibraryManager.getActionListAsync(category, callback);
+    }
+    
+    /**
+     * 预加载常用动作
+     *
+     * @param actionNames 动作名称数组
+     * @param callback 预加载回调
+     */
+    public void preloadActions(String[] actionNames, ActionLibraryManager.PreloadCallback callback) {
+        if (actionLibraryManager == null) {
+            if (callback != null) {
+                callback.onComplete(0, actionNames != null ? actionNames.length : 0);
+            }
+            return;
+        }
+        
+        actionLibraryManager.preloadCommonActionsAsync(actionNames, callback);
+    }
+    
+    /**
+     * 获取缓存统计信息
+     */
+    public ActionCacheManager.CacheStats getCacheStats() {
+        if (actionLibraryManager == null) {
+            return null;
+        }
+        return actionLibraryManager.getCacheStats();
+    }
+    
+    /**
+     * 清空动作库缓存
+     */
+    public void clearActionLibraryCache() {
+        if (actionLibraryManager != null) {
+            actionLibraryManager.clearCache();
+        }
+    }
 
     /**
      * 异步加载序列
@@ -115,29 +204,78 @@ public class EvoBotSequencePlayer {
         setState(PlayerState.LOADING);
 
         try {
-            // 构建文件路径
-            String assetPath = ASSETS_PATH + DEFAULT_SEQUENCE_FILE;
-
-            // 加载序列
-            Log.d(TAG, "正在加载序列文件: " + assetPath);
-            currentSequence = loader.loadFromAssets(assetPath);
-
-            // 重置播放状态
-            currentFrame = 0;
-            lastFrameTime = 0;
-            
-            // 重置-1值填充缓存
-            resetLastValidValues();
-
-            setState(PlayerState.READY);
-
-            // 开始播放
-            startPlayback();
+            // 优先尝试从动作库加载
+            if (actionLibraryManager != null) {
+                Log.d(TAG, "尝试从动作库加载: " + actionName);
+                loadFromActionLibrary(actionName);
+            } else {
+                // 回退到本地assets加载
+                Log.d(TAG, "从本地assets加载: " + actionName);
+                loadFromAssets(actionName);
+            }
 
         } catch (Exception e) {
             Log.e(TAG, "加载序列失败", e);
             handleError("加载序列失败: " + e.getMessage());
         }
+    }
+    
+    /**
+     * 从动作库加载序列
+     */
+    private void loadFromActionLibrary(String actionName) {
+        actionLibraryManager.loadSequenceAsync(actionName, new ActionLibraryManager.LoadSequenceCallback() {
+            @Override
+            public void onSuccess(SequenceData data) {
+                Log.d(TAG, "从动作库加载成功: " + actionName);
+                onSequenceLoaded(data);
+            }
+            
+            @Override
+            public void onError(String error) {
+                Log.w(TAG, "动作库加载失败，尝试本地assets: " + error);
+                // 回退到本地assets
+                try {
+                    loadFromAssets(actionName);
+                } catch (Exception e) {
+                    Log.e(TAG, "本地assets加载也失败", e);
+                    handleError("加载序列失败: " + e.getMessage());
+                }
+            }
+        });
+    }
+    
+    /**
+     * 从本地assets加载序列
+     */
+    private void loadFromAssets(String actionName) throws Exception {
+        // 构建文件路径
+        String assetPath = ASSETS_PATH + DEFAULT_SEQUENCE_FILE;
+
+        // 加载序列
+        Log.d(TAG, "正在加载序列文件: " + assetPath);
+        SequenceData data = loader.loadFromAssets(assetPath);
+        
+        onSequenceLoaded(data);
+    }
+    
+    /**
+     * 序列加载完成处理
+     */
+    private void onSequenceLoaded(SequenceData data) {
+        currentSequence = data;
+        
+        // 重置播放状态
+        currentFrame = 0;
+        lastFrameTime = 0;
+        
+        // 重置-1值填充缓存
+        resetLastValidValues();
+
+        setState(PlayerState.READY);
+
+        // 开始播放
+        startPlayback();
     }
 
     /**
@@ -425,6 +563,11 @@ public class EvoBotSequencePlayer {
         currentSequence = null;
         listener = null;
         setState(PlayerState.IDLE);
+        
+        // 释放动作库管理器资源
+        if (actionLibraryManager != null) {
+            actionLibraryManager.release();
+        }
     }
 
     /**

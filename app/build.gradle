@@ -35,6 +35,8 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+    
+    // HTTP动作库功能无需额外依赖，使用Android内置HttpURLConnection
 }
 
 // 生成JAR任务（仅包含Java代码）

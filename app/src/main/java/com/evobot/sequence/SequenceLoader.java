@@ -63,13 +63,13 @@ public class SequenceLoader {
     }
 
     /**
-     * 解析.ebs二进制文件
+     * 解析.ebs二进制文件（公共方法，供ActionLibraryManager使用）
      *
      * @param inputStream 输入流
      * @return 解析后的序列数据
      * @throws IOException 解析失败
      */
-    private SequenceData parseEbsFile(InputStream inputStream) throws IOException {
+    public SequenceData parseEbsFile(InputStream inputStream) throws IOException {
         // 读取整个���件到内存
         byte[] fileData = readAllBytes(inputStream);
         ByteBuffer buffer = ByteBuffer.wrap(fileData);
