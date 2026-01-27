@@ -98,8 +98,12 @@ public class ActionLibraryManager {
      * 从网络下载并缓存动作序列
      */
     private SequenceData downloadAndCacheSequence(String actionName) throws IOException {
-        // 首先获取动作列表，找到对应的序列ID
+        // 首先获取动作列表，找到对应的序列ID，同时建立映射关系
         String sequenceListJson = client.getSequenceList(null, 100, 0);
+        
+        // 解析动作列表并建立映射关系
+        buildMappingsFromSequenceList(sequenceListJson);
+        
         int sequenceId = findSequenceIdByName(sequenceListJson, actionName);
         
         if (sequenceId <= 0) {
@@ -128,7 +132,7 @@ public class ActionLibraryManager {
             public void onSuccess(ActionLibraryClient.UpdateCheckResult result) {
                 Log.d(TAG, "更新检查完成: " + result.toString());
                 if (callback != null) {
-                    callback.onUpdateCheckComplete(result.hasUpdates, result.updateCount, result.rawResponse);
+                    callback.onUpdateCheckComplete(result.hasUpdates, result.updateCount, result.libraryVersion);
                 }
             }
             
@@ -142,6 +146,13 @@ public class ActionLibraryManager {
         });
     }
     
+    /**
+     * 获取动作序列列表
+     */
+    public String getSequenceList(String category, int limit, int offset) throws IOException {
+        return client.getSequenceList(category, limit, offset);
+    }
+
     /**
      * 异步获取动作列表
      */
@@ -211,21 +222,46 @@ public class ActionLibraryManager {
     
     /**
      * 从JSON响应中查找序列ID
+     * 支持中文名称和英文名称查找
      * 简化实现，实际使用时应该使用JSON解析库
      */
     private int findSequenceIdByName(String jsonResponse, String actionName) {
         try {
             // 简单的字符串匹配查找序列ID
             String[] lines = jsonResponse.split("\n");
-            boolean foundName = false;
             
-            for (String line : lines) {
-                if (line.contains("\"name\":\"" + actionName + "\"")) {
-                    foundName = true;
-                } else if (foundName && line.contains("\"id\":")) {
+            for (int i = 0; i < lines.length; i++) {
+                String line = lines[i].trim();
+                
+                // 找到包含ID的行
+                if (line.contains("\"id\":")) {
                     // 提取ID
-                    String idStr = line.split("\"id\":")[1].split(",")[0].trim();
-                    return Integer.parseInt(idStr);
+                    String[] parts = line.split("\"id\":\\s*");
+                    if (parts.length > 1) {
+                        String idStr = parts[1].split("[,}]")[0].trim();
+                        int id = Integer.parseInt(idStr);
+                        
+                        // 在接下来的几行中查找匹配的名称
+                        for (int j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+                            String nextLine = lines[j].trim();
+                            
+                            // 如果遇到下一个对象的开始，停止搜索
+                            if (nextLine.equals("{") || nextLine.contains("\"id\":")) {
+                                break;
+                            }
+                            
+                            // 优先匹配英文名称（考虑空格）
+                            if (nextLine.contains("\"english_name\"") && nextLine.contains("\"" + actionName + "\"")) {
+                                return id;
+                            }
+                            
+                            // 兼容中文名称匹配（考虑空格，排除english_name字段）
+                            if (nextLine.contains("\"name\"") && nextLine.contains("\"" + actionName + "\"") && 
+                                !nextLine.contains("english_name")) {
+                                return id;
+                            }
+                        }
+                    }
                 }
             }
         } catch (Exception e) {
@@ -233,6 +269,46 @@ public class ActionLibraryManager {
         }
         
         return -1;
+    }
+    
+    /**
+     * 从动作列表JSON中解析并建立映射关系
+     * 简化实现，实际使用时应该使用JSON解析库
+     */
+    public void buildMappingsFromSequenceList(String jsonResponse) {
+        try {
+            String[] lines = jsonResponse.split("\n");
+            String currentName = null;
+            String currentEnglishName = null;
+            
+            for (String line : lines) {
+                if (line.contains("\"name\":\"")) {
+                    // 提取中文名称
+                    String[] parts = line.split("\"name\":\"");
+                    if (parts.length > 1) {
+                        currentName = parts[1].split("\"")[0];
+                    }
+                } else if (line.contains("\"english_name\":\"")) {
+                    // 提取英文名称
+                    String[] parts = line.split("\"english_name\":\"");
+                    if (parts.length > 1) {
+                        currentEnglishName = parts[1].split("\"")[0];
+                    }
+                }
+                
+                // 如果两个名称都获取到了，建立映射
+                if (currentName != null && currentEnglishName != null) {
+                    ActionNameUtils.addMapping(currentName, currentEnglishName);
+                    currentName = null;
+                    currentEnglishName = null;
+                }
+            }
+            
+            Log.d(TAG, "从动作列表建立映射完成，当前映射数量: " + ActionNameUtils.getMappingCount());
+            
+        } catch (Exception e) {
+            Log.w(TAG, "从动作列表建立映射失败", e);
+        }
     }
     
     /**

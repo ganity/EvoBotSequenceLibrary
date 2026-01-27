@@ -71,4 +71,50 @@ public class ActionLibraryConfig {
         return String.format("ActionLibraryConfig{baseUrl='%s', robotId='%s', cache=%s, compensation=%s, safety=%s}",
             baseUrl, robotId, enableCache, enableCompensation, enableSafetyCheck);
     }
+    
+    /**
+     * Builder模式构建器
+     */
+    public static class Builder {
+        private String baseUrl = DEFAULT_BASE_URL;
+        private String robotId = DEFAULT_ROBOT_ID;
+        private String apiKey = DEFAULT_API_KEY;
+        private boolean enableCache = true;
+        private boolean enableCompensation = true;
+        private boolean enableSafetyCheck = true;
+        
+        public Builder setBaseUrl(String baseUrl) {
+            this.baseUrl = baseUrl;
+            return this;
+        }
+        
+        public Builder setRobotId(String robotId) {
+            this.robotId = robotId;
+            return this;
+        }
+        
+        public Builder setApiKey(String apiKey) {
+            this.apiKey = apiKey;
+            return this;
+        }
+        
+        public Builder setEnableCache(boolean enableCache) {
+            this.enableCache = enableCache;
+            return this;
+        }
+        
+        public Builder setEnableCompensation(boolean enableCompensation) {
+            this.enableCompensation = enableCompensation;
+            return this;
+        }
+        
+        public Builder setEnableSafetyCheck(boolean enableSafetyCheck) {
+            this.enableSafetyCheck = enableSafetyCheck;
+            return this;
+        }
+        
+        public ActionLibraryConfig build() {
+            return new ActionLibraryConfig(baseUrl, robotId, apiKey, enableCache, enableCompensation, enableSafetyCheck);
+        }
+    }
 }

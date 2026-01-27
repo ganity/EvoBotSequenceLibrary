@@ -90,3 +90,5 @@ playback_log_*.csv
 *.temp
 *.swp
 *~
+evobot-native/target/
+/com/

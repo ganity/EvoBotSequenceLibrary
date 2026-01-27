@@ -207,9 +207,10 @@ public class ActionCacheManager {
      * 生成文件名
      */
     private String generateFileName(String actionName) {
-        // 使用时间戳和动作名生成唯一文件名
+        // 使用标准化名称（英文）和时间戳生成唯一文件名
+        String standardName = ActionNameUtils.getStandardName(actionName);
         long timestamp = System.currentTimeMillis();
-        String safeName = actionName.replaceAll("[^a-zA-Z0-9_\\-]", "_");
+        String safeName = standardName.replaceAll("[^a-zA-Z0-9_\\-]", "_");
         return String.format("%d_%s.ebs", timestamp, safeName);
     }
     

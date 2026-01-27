@@ -34,6 +34,35 @@ public class SequenceLoader {
     }
 
     /**
+     * 从assets加载原始字节数据（用于Native实现）
+     *
+     * @param assetPath assets中的文件路径
+     * @return 原始字节数组
+     * @throws IOException 读取失败
+     */
+    public byte[] loadRawBytesFromAssets(String assetPath) throws IOException {
+        if (assetPath == null || assetPath.isEmpty()) {
+            throw new IllegalArgumentException("assetPath不能为空");
+        }
+
+        Log.d(TAG, "加载原始字节数据: " + assetPath);
+
+        InputStream inputStream = null;
+        try {
+            inputStream = context.getAssets().open(assetPath);
+            return readAllBytes(inputStream);
+        } finally {
+            if (inputStream != null) {
+                try {
+                    inputStream.close();
+                } catch (IOException e) {
+                    Log.e(TAG, "关闭输入流失败", e);
+                }
+            }
+        }
+    }
+
+    /**
      * 从assets加载序列数据
      *
      * @param assetPath assets中的文件路径，例如 "sequences/左臂挥手右臂掐腰抱胸_20260116_142711.ebs"

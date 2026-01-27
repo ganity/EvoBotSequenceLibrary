@@ -5,6 +5,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
+import java.io.File;
+import java.util.List;
+import java.util.ArrayList;
 
 /**
  * EvoBot序列播放器
@@ -25,8 +28,8 @@ public class EvoBotSequencePlayer {
     private final SequenceLoader loader;
     private final Handler handler;
     
-    // 动作库组件（可选）
-    private ActionLibraryManager actionLibraryManager;
+    // 动作库更新器（可选）
+    private ActionLibraryUpdater actionLibraryUpdater;
 
     // 播放状态
     private PlayerState state = PlayerState.IDLE;
@@ -45,6 +48,43 @@ public class EvoBotSequencePlayer {
 
     // 播放任务
     private Runnable playbackRunnable;
+    
+    // Native播放器实例ID
+    private long nativePlayerId = -1;
+    
+    // 是否使用Native实现
+    private boolean useNativePlayback = true;
+    
+    // Native方法声明
+    static {
+        try {
+            System.loadLibrary("evobot_sequence_native");
+            Log.i(TAG, "Native library loaded successfully");
+        } catch (UnsatisfiedLinkError e) {
+            Log.w(TAG, "Failed to load native library, falling back to Java implementation", e);
+        }
+    }
+    
+    // Native方法声明
+    private static native long nativeCreate();
+    private static native void nativeDestroy(long playerId);
+    private static native boolean nativeRegisterListener(long playerId, SequenceListener listener);
+    private static native void nativeUnregisterListener(long playerId);
+    private static native boolean nativeLoadSequenceFromBytes(long playerId, byte[] data);
+    private static native boolean nativePlayAsync(long playerId, int frequency);
+    private static native void nativePause(long playerId);
+    private static native void nativeResume(long playerId);
+    private static native void nativeStop(long playerId);
+    private static native void nativeEmergencyStop(long playerId);
+    private static native boolean nativeSeek(long playerId, int frameIndex);
+    private static native int nativeGetCurrentFrame(long playerId);
+    private static native int nativeGetTotalFrames(long playerId);
+    private static native void nativeClearCache();
+    
+    // RK3399专用方法
+    private static native boolean nativeSetRK3399BigCores(long playerId, boolean useBigCores);
+    private static native String nativeGetRK3399Stats(long playerId);
+    private static native String nativeGetPerformanceStats();
 
     /**
      * 构造函数（仅支持本地assets）
@@ -58,29 +98,116 @@ public class EvoBotSequencePlayer {
         this.context = context.getApplicationContext();
         this.loader = new SequenceLoader(this.context);
         this.handler = new Handler(Looper.getMainLooper());
+        
+        // 初始化Native播放器
+        initializeNativePlayer();
 
         Log.d(TAG, "EvoBotSequencePlayer初始化完成（仅本地模式）");
     }
     
     /**
-     * 构造函数（支持HTTP动作库）
+     * 构造函数（支持HTTP动作库更新，默认内部存储）
      *
      * @param context Android上下文
      * @param actionLibraryConfig 动作库配置
      */
     public EvoBotSequencePlayer(Context context, ActionLibraryConfig actionLibraryConfig) {
+        this(context, actionLibraryConfig, ActionLibraryUpdater.StorageLocation.INTERNAL_FILES);
+    }
+    
+    /**
+     * 构造函数（支持HTTP动作库更新，指定存储位置）
+     *
+     * @param context Android上下文
+     * @param actionLibraryConfig 动作库配置
+     * @param storageLocation 存储位置
+     */
+    public EvoBotSequencePlayer(Context context, ActionLibraryConfig actionLibraryConfig, 
+                               ActionLibraryUpdater.StorageLocation storageLocation) {
         this(context);
         
         if (actionLibraryConfig != null) {
-            this.actionLibraryManager = new ActionLibraryManager(context, actionLibraryConfig);
-            Log.d(TAG, "EvoBotSequencePlayer初始化完成（支持HTTP动作库）");
+            this.actionLibraryUpdater = new ActionLibraryUpdater(context, actionLibraryConfig, storageLocation);
+            
+            // 初始化动作名称映射关系
+            initializeActionMappings();
+            
+            Log.d(TAG, "EvoBotSequencePlayer初始化完成（支持HTTP动作库更新）");
+        }
+    }
+    
+    /**
+     * 初始化Native播放器
+     */
+    private void initializeNativePlayer() {
+        try {
+            nativePlayerId = nativeCreate();
+            if (nativePlayerId > 0) {
+                useNativePlayback = true;
+                Log.i(TAG, "Native player initialized with ID: " + nativePlayerId);
+            } else {
+                useNativePlayback = false;
+                Log.w(TAG, "Failed to create native player, using Java implementation");
+            }
+        } catch (UnsatisfiedLinkError e) {
+            useNativePlayback = false;
+            Log.w(TAG, "Native library not available, using Java implementation", e);
+        }
+    }
+    
+    /**
+     * 设置是否使用RK3399大核心
+     * 
+     * @param useBigCores 是否使用大核心（A72）
+     * @return 设置是否成功
+     */
+    public boolean setRK3399BigCores(boolean useBigCores) {
+        if (useNativePlayback && nativePlayerId > 0) {
+            return nativeSetRK3399BigCores(nativePlayerId, useBigCores);
+        }
+        return false;
+    }
+    
+    /**
+     * 获取RK3399性能统计
+     * 
+     * @return 性能统计字符串
+     */
+    public String getRK3399Stats() {
+        if (useNativePlayback && nativePlayerId > 0) {
+            return nativeGetRK3399Stats(nativePlayerId);
+        }
+        return "Native playback not available";
+    }
+    
+    /**
+     * 获取全局性能统计
+     * 
+     * @return 全局性能统计字符串
+     */
+    public static String getGlobalPerformanceStats() {
+        try {
+            return nativeGetPerformanceStats();
+        } catch (UnsatisfiedLinkError e) {
+            return "Native library not available";
+        }
+    }
+    
+    /**
+     * 清空Native缓存
+     */
+    public static void clearNativeCache() {
+        try {
+            nativeClearCache();
+        } catch (UnsatisfiedLinkError e) {
+            Log.w(TAG, "Failed to clear native cache", e);
         }
     }
 
     /**
      * 播放序列（使用默认40Hz频率）
      *
-     * @param actionName 动作名称（用于查找对应的.ebs文件）
+     * @param actionName 动作名称（优先使用英文名称，如 arm_movement_left_arm_wave）
      * @param listener   回调监听器
      */
     public void play(String actionName, SequenceListener listener) {
@@ -90,7 +217,7 @@ public class EvoBotSequencePlayer {
     /**
      * 播放序列（指定频率）
      *
-     * @param actionName 动作名称
+     * @param actionName 动作名称（优先使用英文名称，如 arm_movement_left_arm_wave）
      * @param frequency  播放频率（Hz），推荐40Hz
      * @param listener   回调监听器
      */
@@ -110,7 +237,8 @@ public class EvoBotSequencePlayer {
             stop();
         }
 
-        Log.d(TAG, String.format("准备播放: action=%s, frequency=%dHz", actionName, frequency));
+        Log.d(TAG, String.format("准备播放: action=%s, frequency=%dHz, native=%s", 
+            actionName, frequency, useNativePlayback));
 
         this.listener = listener;
         this.targetFrequency = frequency;
@@ -126,72 +254,112 @@ public class EvoBotSequencePlayer {
     }
     
     /**
-     * 检查动作库更新
+     * 首次启动时检查动作库更新（异步，不阻塞启动）
+     * 网络异常不会影响应用启动和使用
      *
-     * @param currentVersion 当前版本
+     * @param callback 更新检查回调（可选）
+     */
+    public void checkForUpdatesOnFirstLaunch(ActionLibraryUpdater.UpdateCallback callback) {
+        if (actionLibraryUpdater == null) {
+            Log.d(TAG, "未配置动作库更新器，跳过首次启动检查");
+            if (callback != null) {
+                callback.onNoUpdateNeeded();
+            }
+            return;
+        }
+        
+        actionLibraryUpdater.checkForUpdatesOnFirstLaunch(callback);
+    }
+    
+    /**
+     * 手动触发检查动作库更新
+     * 用户主动触发，可以显示进度和结果
+     *
      * @param callback 更新检查回调
      */
-    public void checkUpdates(String currentVersion, ActionLibraryManager.UpdateCheckCallback callback) {
-        if (actionLibraryManager == null) {
+    public void manualCheckForUpdates(ActionLibraryUpdater.UpdateCallback callback) {
+        if (actionLibraryUpdater == null) {
             if (callback != null) {
-                callback.onError("未配置动作库管理器");
+                callback.onError("未配置动作库更新器");
             }
             return;
         }
         
-        actionLibraryManager.checkUpdatesAsync(currentVersion, callback);
+        actionLibraryUpdater.manualCheckForUpdates(callback);
     }
     
     /**
-     * 获取动作列表
+     * 检查动作库更新（定期检查，基于时间间隔）
      *
-     * @param category 分类过滤（可选）
-     * @param callback 回调
+     * @param callback 更新检查回调
      */
-    public void getActionList(String category, ActionLibraryManager.ActionListCallback callback) {
-        if (actionLibraryManager == null) {
+    public void checkForUpdates(ActionLibraryUpdater.UpdateCallback callback) {
+        if (actionLibraryUpdater == null) {
             if (callback != null) {
-                callback.onError("未配置动作库管理器");
+                callback.onError("未配置动作库更新器");
             }
             return;
         }
         
-        actionLibraryManager.getActionListAsync(category, callback);
+        actionLibraryUpdater.checkAndDownloadUpdatesAsync(callback);
     }
     
     /**
-     * 预加载常用动作
+     * 检查是否是首次启动
+     */
+    public boolean isFirstLaunch() {
+        if (actionLibraryUpdater == null) {
+            return false;
+        }
+        return actionLibraryUpdater.isFirstLaunch();
+    }
+    
+    /**
+     * 强制检查动作库更新（忽略时间间隔）
      *
-     * @param actionNames 动作名称数组
-     * @param callback 预加载回调
+     * @param callback 更新检查回调
      */
-    public void preloadActions(String[] actionNames, ActionLibraryManager.PreloadCallback callback) {
-        if (actionLibraryManager == null) {
-            if (callback != null) {
-                callback.onComplete(0, actionNames != null ? actionNames.length : 0);
-            }
-            return;
-        }
-        
-        actionLibraryManager.preloadCommonActionsAsync(actionNames, callback);
+    public void forceCheckForUpdates(ActionLibraryUpdater.UpdateCallback callback) {
+        // 重定向到手动检查，提供更好的语义
+        manualCheckForUpdates(callback);
     }
     
     /**
-     * 获取缓存统计信息
+     * 获取当前动作库版本
      */
-    public ActionCacheManager.CacheStats getCacheStats() {
-        if (actionLibraryManager == null) {
-            return null;
+    public String getCurrentLibraryVersion() {
+        if (actionLibraryUpdater == null) {
+            return "1.0.0";
         }
-        return actionLibraryManager.getCacheStats();
+        return actionLibraryUpdater.getCurrentVersion();
     }
     
     /**
-     * 清空动作库缓存
+     * 获取所有本地下载的动作文件
      */
-    public void clearActionLibraryCache() {
-        if (actionLibraryManager != null) {
-            actionLibraryManager.clearCache();
+    public List<File> getDownloadedActionFiles() {
+        if (actionLibraryUpdater == null) {
+            return new ArrayList<>();
+        }
+        return actionLibraryUpdater.getAllLocalActionFiles();
+    }
+    
+    /**
+     * 获取存储位置信息
+     */
+    public String getStorageInfo() {
+        if (actionLibraryUpdater == null) {
+            return "未配置动作库更新器";
+        }
+        return actionLibraryUpdater.getStorageInfo();
+    }
+    
+    /**
+     * 清理下载的动作文件
+     */
+    public void clearDownloadedActions() {
+        if (actionLibraryUpdater != null) {
+            actionLibraryUpdater.clearLocalActions();
         }
     }
 
@@ -204,10 +372,10 @@ public class EvoBotSequencePlayer {
         setState(PlayerState.LOADING);
 
         try {
-            // 优先尝试从动作库加载
-            if (actionLibraryManager != null) {
-                Log.d(TAG, "尝试从动作库加载: " + actionName);
-                loadFromActionLibrary(actionName);
+            // 优先尝试从下载的动作库加载
+            if (actionLibraryUpdater != null) {
+                Log.d(TAG, "尝试从下载的动作库加载: " + actionName);
+                loadFromDownloadedActions(actionName);
             } else {
                 // 回退到本地assets加载
                 Log.d(TAG, "从本地assets加载: " + actionName);
@@ -221,28 +389,35 @@ public class EvoBotSequencePlayer {
     }
     
     /**
-     * 从动作库加载序列
+     * 从下载的动作库加载序列
      */
-    private void loadFromActionLibrary(String actionName) {
-        actionLibraryManager.loadSequenceAsync(actionName, new ActionLibraryManager.LoadSequenceCallback() {
-            @Override
-            public void onSuccess(SequenceData data) {
-                Log.d(TAG, "从动作库加载成功: " + actionName);
-                onSequenceLoaded(data);
-            }
+    private void loadFromDownloadedActions(String actionName) {
+        try {
+            // 查找本地下载的动作文件
+            File actionFile = actionLibraryUpdater.getLocalActionFile(actionName);
             
-            @Override
-            public void onError(String error) {
-                Log.w(TAG, "动作库加载失败，尝试本地assets: " + error);
-                // 回退到本地assets
-                try {
-                    loadFromAssets(actionName);
-                } catch (Exception e) {
-                    Log.e(TAG, "本地assets加载也失败", e);
-                    handleError("加载序列失败: " + e.getMessage());
+            if (actionFile != null && actionFile.exists()) {
+                Log.d(TAG, "从下载的动作文件加载: " + actionFile.getAbsolutePath());
+                try (java.io.FileInputStream fis = new java.io.FileInputStream(actionFile)) {
+                    SequenceData data = loader.parseEbsFile(fis);
+                    onSequenceLoaded(data);
+                    return;
                 }
             }
-        });
+            
+            // 如果没有找到下载的动作，回退到assets
+            Log.d(TAG, "未找到下载的动作，回退到assets: " + actionName);
+            loadFromAssets(actionName);
+            
+        } catch (Exception e) {
+            Log.w(TAG, "从下载动作加载失败，回退到assets: " + e.getMessage());
+            try {
+                loadFromAssets(actionName);
+            } catch (Exception e2) {
+                Log.e(TAG, "assets加载也失败", e2);
+                handleError("加载序列失败: " + e2.getMessage());
+            }
+        }
     }
     
     /**
@@ -273,9 +448,83 @@ public class EvoBotSequencePlayer {
         resetLastValidValues();
 
         setState(PlayerState.READY);
-
-        // 开始播放
+        
+        // 如果使用Native播放，加载序列到Native层
+        if (useNativePlayback && nativePlayerId > 0) {
+            try {
+                // 将序列数据转换为字节数组（这里需要实现序列化）
+                byte[] sequenceBytes = serializeSequenceData(data);
+                boolean loaded = nativeLoadSequenceFromBytes(nativePlayerId, sequenceBytes);
+                
+                if (loaded) {
+                    // 注册Native回调监听器
+                    boolean registered = nativeRegisterListener(nativePlayerId, listener);
+                    if (registered) {
+                        Log.d(TAG, "Native sequence loaded and listener registered");
+                        startNativePlayback();
+                        return;
+                    } else {
+                        Log.w(TAG, "Failed to register native listener, falling back to Java");
+                        useNativePlayback = false;
+                    }
+                } else {
+                    Log.w(TAG, "Failed to load sequence to native, falling back to Java");
+                    useNativePlayback = false;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Native playback failed, falling back to Java", e);
+                useNativePlayback = false;
+            }
+        }
+        
+        // 回退到Java实现
         startPlayback();
+    }
+    
+    /**
+     * 启动Native播放
+     */
+    private void startNativePlayback() {
+        if (!useNativePlayback || nativePlayerId <= 0) {
+            Log.w(TAG, "Native playback not available");
+            startPlayback();
+            return;
+        }
+        
+        setState(PlayerState.PLAYING);
+        
+        // RK3399优化：高频率播放使用大核心
+        if (targetFrequency > 60) {
+            setRK3399BigCores(true);
+        }
+        
+        boolean started = nativePlayAsync(nativePlayerId, targetFrequency);
+        if (!started) {
+            Log.w(TAG, "Failed to start native playback, falling back to Java");
+            useNativePlayback = false;
+            startPlayback();
+        } else {
+            Log.d(TAG, "Native async playback started at " + targetFrequency + "Hz");
+        }
+    }
+    
+    /**
+     * 序列数据序列化（简化实现）
+     * 实际项目中应该使用更高效的序列化方式
+     */
+    private byte[] serializeSequenceData(SequenceData data) {
+        // 这里需要实现将SequenceData转换为字节数组的逻辑
+        // 为了简化，我们假设已经有了原始的.ebs文件数据
+        // 实际实现中应该从SequenceLoader获取原始字节数据
+        
+        try {
+            // 临时实现：重新读取原始文件
+            String assetPath = ASSETS_PATH + DEFAULT_SEQUENCE_FILE;
+            return loader.loadRawBytesFromAssets(assetPath);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to serialize sequence data", e);
+            return new byte[0];
+        }
     }
 
     /**
@@ -372,9 +621,14 @@ public class EvoBotSequencePlayer {
         }
 
         setState(PlayerState.PAUSED);
-        handler.removeCallbacks(playbackRunnable);
+        
+        if (useNativePlayback && nativePlayerId > 0) {
+            nativePause(nativePlayerId);
+        } else {
+            handler.removeCallbacks(playbackRunnable);
+        }
 
-        Log.d(TAG, String.format("播放已暂停，当前帧: %d/%d", currentFrame, currentSequence.totalFrames));
+        Log.d(TAG, String.format("播放已暂停，当前帧: %d/%d", getCurrentFrame(), getTotalFrames()));
     }
 
     /**
@@ -387,7 +641,13 @@ public class EvoBotSequencePlayer {
         }
 
         Log.d(TAG, "恢复播放");
-        startPlayback();
+        
+        if (useNativePlayback && nativePlayerId > 0) {
+            nativeResume(nativePlayerId);
+            setState(PlayerState.PLAYING);
+        } else {
+            startPlayback();
+        }
     }
 
     /**
@@ -399,7 +659,13 @@ public class EvoBotSequencePlayer {
         }
 
         setState(PlayerState.STOPPED);
-        handler.removeCallbacks(playbackRunnable);
+        
+        if (useNativePlayback && nativePlayerId > 0) {
+            nativeStop(nativePlayerId);
+        } else {
+            handler.removeCallbacks(playbackRunnable);
+        }
+        
         currentFrame = 0;
         lastFrameTime = 0;
         
@@ -416,8 +682,21 @@ public class EvoBotSequencePlayer {
     public void emergencyStop() {
         Log.w(TAG, "执行急停操作");
         
-        // 立即停止所有播放任务
-        handler.removeCallbacks(playbackRunnable);
+        if (useNativePlayback && nativePlayerId > 0) {
+            nativeEmergencyStop(nativePlayerId);
+        } else {
+            // 立即停止所有播放任务
+            handler.removeCallbacks(playbackRunnable);
+            
+            // 立即通知监听器执行急停
+            if (listener != null) {
+                try {
+                    listener.onEmergencyStop();
+                } catch (Exception e) {
+                    Log.e(TAG, "急停回调异常", e);
+                }
+            }
+        }
         
         // 设置状态为停止
         setState(PlayerState.STOPPED);
@@ -428,15 +707,6 @@ public class EvoBotSequencePlayer {
         
         // 重置-1值填充缓存
         resetLastValidValues();
-        
-        // 立即通知监听器执行急停
-        if (listener != null) {
-            try {
-                listener.onEmergencyStop();
-            } catch (Exception e) {
-                Log.e(TAG, "急停回调异常", e);
-            }
-        }
         
         Log.w(TAG, "急停操作完成");
     }
@@ -452,13 +722,25 @@ public class EvoBotSequencePlayer {
             return;
         }
 
-        if (frameIndex < 0 || frameIndex >= currentSequence.totalFrames) {
-            Log.w(TAG, String.format("无效的帧索引: %d，范围: 0-%d", frameIndex, currentSequence.totalFrames - 1));
+        if (frameIndex < 0 || frameIndex >= getTotalFrames()) {
+            Log.w(TAG, String.format("无效的帧索引: %d，范围: 0-%d", frameIndex, getTotalFrames() - 1));
             return;
         }
 
         boolean wasPlaying = (state == PlayerState.PLAYING);
+        
+        if (useNativePlayback && nativePlayerId > 0) {
+            boolean success = nativeSeek(nativePlayerId, frameIndex);
+            if (!success) {
+                Log.w(TAG, "Native seek failed, falling back to Java implementation");
+                useNativePlayback = false;
+            } else {
+                Log.d(TAG, String.format("Native seek to frame: %d/%d", frameIndex, getTotalFrames()));
+                return;
+            }
+        }
 
+        // Java实现的跳转逻辑
         // 停止当前播放
         if (wasPlaying) {
             handler.removeCallbacks(playbackRunnable);
@@ -466,7 +748,7 @@ public class EvoBotSequencePlayer {
 
         currentFrame = frameIndex;
 
-        Log.d(TAG, String.format("跳转到帧: %d/%d", frameIndex, currentSequence.totalFrames));
+        Log.d(TAG, String.format("跳转到帧: %d/%d", frameIndex, getTotalFrames()));
 
         // 如果之前在播放，立即播放跳转后的帧
         if (wasPlaying) {
@@ -490,6 +772,9 @@ public class EvoBotSequencePlayer {
      * @return 当前帧索引（从0开始），如果未加载序列返回-1
      */
     public int getCurrentFrame() {
+        if (useNativePlayback && nativePlayerId > 0) {
+            return nativeGetCurrentFrame(nativePlayerId);
+        }
         return currentFrame;
     }
 
@@ -499,6 +784,9 @@ public class EvoBotSequencePlayer {
      * @return 总帧数，如果未加载序列返回0
      */
     public int getTotalFrames() {
+        if (useNativePlayback && nativePlayerId > 0) {
+            return nativeGetTotalFrames(nativePlayerId);
+        }
         return currentSequence != null ? currentSequence.totalFrames : 0;
     }
 
@@ -564,9 +852,21 @@ public class EvoBotSequencePlayer {
         listener = null;
         setState(PlayerState.IDLE);
         
-        // 释放动作库管理器资源
-        if (actionLibraryManager != null) {
-            actionLibraryManager.release();
+        // 释放Native资源
+        if (useNativePlayback && nativePlayerId > 0) {
+            try {
+                nativeUnregisterListener(nativePlayerId);
+                nativeDestroy(nativePlayerId);
+                nativePlayerId = -1;
+                Log.d(TAG, "Native player resources released");
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to release native resources", e);
+            }
+        }
+        
+        // 释放动作库更新器资源
+        if (actionLibraryUpdater != null) {
+            actionLibraryUpdater.release();
         }
     }
 
@@ -627,5 +927,25 @@ public class EvoBotSequencePlayer {
                 playNextFrame();
             }
         };
+    }
+    
+    /**
+     * 初始化动作名称映射关系
+     */
+    private void initializeActionMappings() {
+        if (actionLibraryUpdater != null) {
+            // 在后台线程中初始化映射，避免阻塞主线程
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        actionLibraryUpdater.initializeMappings();
+                        Log.d(TAG, "动作名称映射初始化完成");
+                    } catch (Exception e) {
+                        Log.w(TAG, "动作名称映射初始化失败", e);
+                    }
+                }
+            }, "MappingInitializer").start();
+        }
     }
 }

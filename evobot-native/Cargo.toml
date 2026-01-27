@@ -1,0 +1,44 @@
+[package]
+name = "evobot-native"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+name = "evobot_sequence_native"
+crate-type = ["cdylib"]
+
+[[bin]]
+name = "test_runner"
+path = "src/bin/test_runner.rs"
+
+[dependencies]
+jni = "0.21"
+android_logger = "0.13"
+tokio = { version = "1.0", features = ["rt", "time", "sync"] }
+serde = { version = "1.0", features = ["derive"] }
+byteorder = "1.5"
+thiserror = "1.0"
+log = "0.4"
+lazy_static = "1.4"
+env_logger = "0.10"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.release-rk3399]
+inherits = "release"
+# 针对RK3399的特殊优化
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+# Mac平台测试配置
+[profile.mac-test]
+inherits = "release"
+opt-level = 2
+lto = false
+panic = "unwind"  # Mac测试时允许panic展开以便调试
