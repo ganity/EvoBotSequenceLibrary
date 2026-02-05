@@ -7,7 +7,7 @@ use crate::playback::PlaybackEngine;
 use crate::sequence::SequenceParser;
 use crate::cache::CacheManager;
 use crate::jni_bridge::callbacks::{
-    init_callback_system, register_player_listener, unregister_player_listener,
+    register_player_listener, unregister_player_listener,
     call_java_frame_callback, call_java_complete_callback, call_java_error_callback,
     call_java_emergency_stop_callback
 };

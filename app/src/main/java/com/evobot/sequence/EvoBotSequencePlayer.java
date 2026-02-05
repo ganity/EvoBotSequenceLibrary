@@ -237,8 +237,8 @@ public class EvoBotSequencePlayer {
             stop();
         }
 
-        Log.d(TAG, String.format("准备播放: action=%s, frequency=%dHz, native=%s", 
-            actionName, frequency, useNativePlayback));
+        // Log.d(TAG, String.format("准备播放: action=%s, frequency=%dHz, native=%s", 
+        //     actionName, frequency, useNativePlayback));
 
         this.listener = listener;
         this.targetFrequency = frequency;
@@ -947,5 +947,190 @@ public class EvoBotSequencePlayer {
                 }
             }, "MappingInitializer").start();
         }
+    }
+    
+    /**
+     * 获取所有可用的动作信息列表
+     * 包括本地assets和下载的动作库
+     * 
+     * @return 动作信息列表
+     */
+    public List<ActionInfo> getAllAvailableActions() {
+        List<ActionInfo> actionList = new ArrayList<>();
+        
+        // 1. 获取本地assets中的动作
+        try {
+            String[] assetFiles = context.getAssets().list(ASSETS_PATH);
+            if (assetFiles != null) {
+                for (String fileName : assetFiles) {
+                    if (fileName.endsWith(".ebs")) {
+                        ActionInfo info = new ActionInfo();
+                        info.fileName = fileName;
+                        info.name = ActionNameUtils.extractActionNameFromFileName(fileName);
+                        info.englishName = ActionNameUtils.getStandardName(info.name);
+                        info.category = "本地动作";
+                        info.status = "可用";
+                        actionList.add(info);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "获取本地assets动作失败", e);
+        }
+        
+        // 2. 获取下载的动作库
+        if (actionLibraryUpdater != null) {
+            List<File> downloadedFiles = actionLibraryUpdater.getAllLocalActionFiles();
+            for (File file : downloadedFiles) {
+                ActionInfo info = new ActionInfo();
+                info.fileName = file.getName();
+                info.name = ActionNameUtils.extractActionNameFromFileName(file.getName());
+                info.englishName = ActionNameUtils.getStandardName(info.name);
+                info.category = "下载动作";
+                info.status = "可用";
+                info.fileSize = file.length();
+                info.lastModified = file.lastModified();
+                actionList.add(info);
+            }
+        }
+        
+        Log.d(TAG, String.format("获取到 %d 个可用动作", actionList.size()));
+        return actionList;
+    }
+    
+    /**
+     * 异步获取所有可用的动作信息
+     * 
+     * @param callback 回调接口
+     */
+    public void getAllAvailableActionsAsync(ActionListCallback callback) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    List<ActionInfo> actions = getAllAvailableActions();
+                    if (callback != null) {
+                        handler.post(() -> callback.onSuccess(actions));
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "异步获取动作列表失败", e);
+                    if (callback != null) {
+                        handler.post(() -> callback.onError("获取动作列表失败: " + e.getMessage()));
+                    }
+                }
+            }
+        }, "ActionListLoader").start();
+    }
+    
+    /**
+     * 根据名称查找动作信息
+     * 支持中文名称和英文名称查找
+     * 
+     * @param actionName 动作名称
+     * @return 动作信息，如果未找到返回null
+     */
+    public ActionInfo findActionByName(String actionName) {
+        if (actionName == null || actionName.isEmpty()) {
+            return null;
+        }
+        
+        List<ActionInfo> allActions = getAllAvailableActions();
+        for (ActionInfo action : allActions) {
+            if (ActionNameUtils.isNameMatch(actionName, action.name) || 
+                ActionNameUtils.isNameMatch(actionName, action.englishName)) {
+                return action;
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * 获取动作名称映射信息
+     * 返回当前所有的中英文名称映射关系
+     * 
+     * @return 映射信息字符串
+     */
+    public String getActionNameMappings() {
+        StringBuilder mappings = new StringBuilder();
+        mappings.append("当前动作名称映射数量: ").append(ActionNameUtils.getMappingCount()).append("\n");
+        
+        List<ActionInfo> actions = getAllAvailableActions();
+        for (ActionInfo action : actions) {
+            mappings.append(String.format("文件: %s\n", action.fileName));
+            mappings.append(String.format("  中文名: %s\n", action.name));
+            mappings.append(String.format("  英文名: %s\n", action.englishName));
+            mappings.append(String.format("  类别: %s\n", action.category));
+            mappings.append("---\n");
+        }
+        
+        return mappings.toString();
+    }
+    
+    /**
+     * 获取动作库统计信息
+     * 
+     * @return 统计信息对象
+     */
+    public ActionLibraryStats getActionLibraryStats() {
+        ActionLibraryStats stats = new ActionLibraryStats();
+        
+        List<ActionInfo> allActions = getAllAvailableActions();
+        stats.totalActionCount = allActions.size();
+        
+        for (ActionInfo action : allActions) {
+            if ("本地动作".equals(action.category)) {
+                stats.localActionCount++;
+            } else if ("下载动作".equals(action.category)) {
+                stats.downloadedActionCount++;
+                stats.totalDownloadedSize += action.fileSize;
+            }
+        }
+        
+        stats.mappingCount = ActionNameUtils.getMappingCount();
+        stats.currentVersion = getCurrentLibraryVersion();
+        
+        if (actionLibraryUpdater != null) {
+            stats.storageInfo = actionLibraryUpdater.getStorageInfo();
+        }
+        
+        return stats;
+    }
+    
+    /**
+     * 动作库统计信息类
+     */
+    public static class ActionLibraryStats {
+        public int totalActionCount = 0;        // 总动作数量
+        public int localActionCount = 0;        // 本地动作数量
+        public int downloadedActionCount = 0;   // 下载动作数量
+        public long totalDownloadedSize = 0;    // 下载动作总大小
+        public int mappingCount = 0;            // 映射关系数量
+        public String currentVersion = "1.0.0"; // 当前版本
+        public String storageInfo = "";         // 存储信息
+        
+        @Override
+        public String toString() {
+            return String.format(
+                "动作库统计:\n" +
+                "  总动作数: %d\n" +
+                "  本地动作: %d\n" +
+                "  下载动作: %d\n" +
+                "  下载大小: %d bytes\n" +
+                "  映射数量: %d\n" +
+                "  当前版本: %s\n" +
+                "  存储信息: %s",
+                totalActionCount, localActionCount, downloadedActionCount,
+                totalDownloadedSize, mappingCount, currentVersion, storageInfo
+            );
+        }
+    }
+    
+    /**
+     * 动作列表回调接口
+     */
+    public interface ActionListCallback {
+        void onSuccess(List<ActionInfo> actions);
+        void onError(String error);
     }
 }

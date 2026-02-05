@@ -7,9 +7,7 @@ edition = "2021"
 name = "evobot_sequence_native"
 crate-type = ["cdylib"]
 
-[[bin]]
-name = "test_runner"
-path = "src/bin/test_runner.rs"
+# 移除二进制文件配置，只编译库
 
 [dependencies]
 jni = "0.21"
